@@ -47,7 +47,8 @@ inline std::optional<std::uint64_t> get_u64(std::string_view line, std::string_v
     return v;
 }
 
-inline bool parse_command(std::string_view line, Command& out) {
+inline bool parse_command(std::string_view line, Command& out, Symbol* sym = nullptr) {
+    if (sym) *sym = Symbol(get_u64(line, "symbol").value_or(0));
     auto cmd = get_str(line, "cmd");
     if (cmd == "new") {
         out = Command{};
@@ -81,6 +82,7 @@ struct Header {
     std::size_t max_orders = 65'536;
     IndexKind index = IndexKind::Ladder;
     std::string index_raw = "ladder";
+    bool engine = false;
 };
 
 inline Header parse_header(std::string_view line) {
@@ -91,6 +93,7 @@ inline Header parse_header(std::string_view line) {
     auto ir = get_str(line, "index");
     h.index_raw = ir.empty() ? "ladder" : std::string(ir);
     h.index = h.index_raw == "tree" ? IndexKind::Tree : IndexKind::Ladder;
+    h.engine = get_str(line, "engine") == "true";
     return h;
 }
 

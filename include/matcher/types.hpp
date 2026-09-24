@@ -112,26 +112,51 @@ inline void append_i(std::string& s, std::int64_t v) {
     append_u(s, std::uint64_t(v));
 }
 
+namespace detail {
+inline void write_canonical_impl(std::uint64_t seq, std::string_view sym_field,
+                                 const Event& e, std::string& out);
+}
+
 // Canonical JSON line (SCHEMA.md), no newline.
 inline void write_canonical(std::uint64_t seq, const Event& e, std::string& out) {
+    detail::write_canonical_impl(seq, "", e, out);
+}
+
+// Canonical line for `engine:true` vectors: `"symbol":N` after `ev`.
+inline void write_canonical_sym(std::uint64_t seq, Symbol sym, const Event& e,
+                                std::string& out) {
+    std::string sf = ",\"symbol\":";
+    append_u(sf, sym);
+    detail::write_canonical_impl(seq, sf, e, out);
+}
+
+namespace detail {
+inline void write_canonical_impl(std::uint64_t seq, std::string_view sym_field,
+                                 const Event& e, std::string& out) {
     out += "{\"seq\":";
     append_u(out, seq);
     switch (e.kind) {
         case Event::Kind::Accepted:
-            out += ",\"ev\":\"accepted\",\"order_id\":";
+            out += ",\"ev\":\"accepted\"";
+            out += sym_field;
+            out += ",\"order_id\":";
             append_u(out, e.order_id);
             out += ",\"leaves_qty\":";
             append_u(out, e.leaves_qty);
             break;
         case Event::Kind::Rejected:
-            out += ",\"ev\":\"rejected\",\"order_id\":";
+            out += ",\"ev\":\"rejected\"";
+            out += sym_field;
+            out += ",\"order_id\":";
             append_u(out, e.order_id);
             out += ",\"reason\":\"";
             out += to_str(RejectReason(e.reason));
             out += '"';
             break;
         case Event::Kind::Trade:
-            out += ",\"ev\":\"trade\",\"maker\":";
+            out += ",\"ev\":\"trade\"";
+            out += sym_field;
+            out += ",\"maker\":";
             append_u(out, e.maker);
             out += ",\"taker\":";
             append_u(out, e.taker);
@@ -141,14 +166,18 @@ inline void write_canonical(std::uint64_t seq, const Event& e, std::string& out)
             append_u(out, e.qty);
             break;
         case Event::Kind::Closed:
-            out += ",\"ev\":\"closed\",\"order_id\":";
+            out += ",\"ev\":\"closed\"";
+            out += sym_field;
+            out += ",\"order_id\":";
             append_u(out, e.order_id);
             out += ",\"reason\":\"";
             out += to_str(CloseReason(e.reason));
             out += '"';
             break;
         case Event::Kind::Replaced:
-            out += ",\"ev\":\"replaced\",\"order_id\":";
+            out += ",\"ev\":\"replaced\"";
+            out += sym_field;
+            out += ",\"order_id\":";
             append_u(out, e.order_id);
             out += ",\"price\":";
             append_i(out, e.price);
@@ -158,6 +187,7 @@ inline void write_canonical(std::uint64_t seq, const Event& e, std::string& out)
     }
     out += '}';
 }
+} // namespace detail
 
 enum class IndexKind : std::uint8_t { Ladder, Tree };
 

@@ -22,6 +22,25 @@ static std::vector<std::string> run_vector(const fs::path& cmd_path, IndexKind k
     cfg.price_max = hdr.pmax;
     cfg.max_orders = hdr.max_orders;
     cfg.index = kind;
+    if (hdr.engine) {
+        Engine eng(cfg);
+        std::vector<std::string> out;
+        Command cmd;
+        Symbol sym = 0;
+        while (std::getline(in, line)) {
+            if (line.empty()) continue;
+            if (!jsonflat::parse_command(line, cmd, &sym)) {
+                std::cerr << "bad command line: " << line << "\n";
+                std::exit(2);
+            }
+            eng.submit_tagged(sym, cmd, [&](Symbol s, std::uint64_t seq, const Event& ev) {
+                std::string l;
+                write_canonical_sym(seq, s, ev, l);
+                out.push_back(l);
+            });
+        }
+        return out;
+    }
     OrderBook book(cfg);
     LinesSink sink;
     Command cmd;
