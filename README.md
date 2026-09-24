@@ -4,7 +4,8 @@
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 
 Deterministic FIFO limit order book and matching engine core — header-only
-C++20, a port of the reference [Rust implementation](https://github.com/abhijitkrm/matcher-rust).
+C++20, measured at up to **~23M orders/sec** on Apple M1 (single-threaded,
+see `spec/BENCH.md`).
 
 Single-writer book per symbol, commands in, monotonically sequenced events out.
 All I/O hangs off the `Sink` concept; there is no networking, persistence, or
@@ -44,10 +45,8 @@ target_link_libraries(your_target PRIVATE matcher)
   `std::map` fallback for unbounded prices
 - Enum-dispatched index — no virtual dispatch on the hot path
 - Thin multi-symbol `Engine` router
-- Deterministic event streams — byte-identical to the
-  [Rust](https://github.com/abhijitkrm/matcher-rust) and
-  [Go](https://github.com/abhijitkrm/matcher-go) implementations, verified
-  against the shared golden vector corpus (`vectors/`)
+- Deterministic event streams — verified byte-identically against the shared
+  golden vector corpus (`vectors/`)
 
 ## Layout
 
@@ -57,7 +56,7 @@ tests/golden.cpp   golden vector runner
 bench/             matcherbench harness
 vectors/           shared golden corpus (spec repo: github.com/abhijitkrm/matcher)
 spec/              semantics contract (SPEC.md, SCHEMA.md, BENCH.md)
-tools/             vectorgen — deterministic workload generator (Rust tool)
+tools/             vectorgen — deterministic workload generator
 ```
 
 ## Test & bench
@@ -67,7 +66,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ctest --test-dir build --output-on-failure   # 41 golden vectors
 
-# benchmark — vectorgen is a small Rust tool (see spec/BENCH.md)
+# benchmark (see spec/BENCH.md)
 mkdir -p bench/corpora
 cargo run --release --manifest-path tools/vectorgen/Cargo.toml -- \
   --workload w2 --n 200000 --setup-n 100000 --out bench/corpora/w2
