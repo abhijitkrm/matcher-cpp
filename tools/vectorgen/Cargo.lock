@@ -3,12 +3,5 @@
 version = 4
 
 [[package]]
-name = "matcher"
-version = "0.1.0"
-
-[[package]]
 name = "vectorgen"
 version = "0.1.0"
-dependencies = [
- "matcher",
-]

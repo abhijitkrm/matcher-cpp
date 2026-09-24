@@ -9,7 +9,8 @@
 
 use std::io::Write as _;
 
-use matcher::{Command, OType, Side, Tif};
+mod types;
+use types::{Command, OType, Side, Tif};
 
 const MID: i64 = 500_000;
 const PMIN: i64 = 0;
