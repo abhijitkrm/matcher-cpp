@@ -30,6 +30,9 @@ add_test(NAME golden COMMAND golden_test ${CMAKE_CURRENT_SOURCE_DIR}/vectors)
 
 add_executable(matcherbench bench/matcherbench.cpp)
 target_link_libraries(matcherbench PRIVATE matcher)
+
+add_executable(matcherfuzz bench/matcherfuzz.cpp)
+target_link_libraries(matcherfuzz PRIVATE matcher)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(matcherbench PRIVATE -O3 -march=native)
 endif()
