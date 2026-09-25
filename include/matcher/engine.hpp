@@ -1,8 +1,10 @@
 // Engine — thin multi-symbol router: one book per symbol.
 #pragma once
 
+#include <algorithm>
 #include <functional>
 #include <unordered_map>
+#include <vector>
 
 #include "book.hpp"
 
@@ -18,6 +20,9 @@ class Engine {
         auto it = books_.find(sym);
         return it == books_.end() ? nullptr : &it->second;
     }
+
+    /// Insert a fully-formed book (snapshot restore).
+    void add_book(Symbol sym, OrderBook b) { books_.emplace(sym, std::move(b)); }
 
     /// Route a command to sym's book (created with default config on first use).
     template <class S>
@@ -38,6 +43,17 @@ class Engine {
         } ad{sym, f};
         book.apply(cmd, ad);
     }
+
+    /// Live symbols in ascending order (deterministic for snapshots).
+    std::vector<Symbol> symbols() const {
+        std::vector<Symbol> out;
+        out.reserve(books_.size());
+        for (const auto& [s, _] : books_) out.push_back(s);
+        std::sort(out.begin(), out.end());
+        return out;
+    }
+
+    BookConfig default_config() const { return default_cfg_; }
 
   private:
     BookConfig default_cfg_;

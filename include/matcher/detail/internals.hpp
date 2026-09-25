@@ -17,6 +17,7 @@ struct Order {
     Side side;
     Price price;
     Qty qty;
+    Tif tif;
     std::uint32_t prev, next;
 };
 
@@ -39,7 +40,7 @@ struct Pool {
         }
         if (slots.size() < cap) {
             auto idx = static_cast<std::uint32_t>(slots.size());
-            slots.push_back(Order{0, Side::Bid, 0, 0, NIL, NIL});
+            slots.push_back(Order{0, Side::Bid, 0, 0, Tif::Gtc, NIL, NIL});
             ++live;
             return idx;
         }

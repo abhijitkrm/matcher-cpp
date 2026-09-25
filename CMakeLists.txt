@@ -28,11 +28,18 @@ add_executable(golden_test tests/golden.cpp)
 target_link_libraries(golden_test PRIVATE matcher)
 add_test(NAME golden COMMAND golden_test ${CMAKE_CURRENT_SOURCE_DIR}/vectors)
 
+add_executable(snapshot_test tests/snapshot.cpp)
+target_link_libraries(snapshot_test PRIVATE matcher)
+add_test(NAME snapshot COMMAND snapshot_test ${CMAKE_CURRENT_SOURCE_DIR}/vectors)
+
 add_executable(matcherbench bench/matcherbench.cpp)
 target_link_libraries(matcherbench PRIVATE matcher)
 
 add_executable(matcherfuzz bench/matcherfuzz.cpp)
 target_link_libraries(matcherfuzz PRIVATE matcher)
+
+add_executable(matchersnap bench/matchersnap.cpp)
+target_link_libraries(matchersnap PRIVATE matcher)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(matcherbench PRIVATE -O3 -march=native)
 endif()

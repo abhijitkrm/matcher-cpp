@@ -6,3 +6,5 @@
 #include "sink.hpp"
 #include "book.hpp"
 #include "engine.hpp"
+#include "journal.hpp"
+#include "snapshot.hpp"

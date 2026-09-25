@@ -2,6 +2,8 @@
 // Mirrors matcher-rust/src/book.rs.
 #pragma once
 
+#include <limits>
+
 #include "detail/internals.hpp"
 #include "types.hpp"
 
@@ -69,7 +71,7 @@ class OrderBook {
             e.reason = std::uint8_t(CloseReason::Filled);
             emit(sink, e);
         } else if (c.otype == OType::Limit && (c.tif == Tif::Gtc || c.tif == Tif::PostOnly)) {
-            rest(oid, c.side, c.price, remaining);
+            rest(oid, c.side, c.price, remaining, c.tif);
             Event e; e.kind = Event::Kind::Accepted; e.order_id = oid; e.leaves_qty = remaining;
             emit(sink, e);
         } else {
@@ -204,6 +206,52 @@ class OrderBook {
         return true;
     }
 
+    /// One live order, for snapshot serialization (spec/JOURNAL.md).
+    struct RestingOrder {
+        OrderId order_id;
+        Side side;
+        Price price;
+        Qty qty;
+        Tif tif;
+    };
+
+    /// All live orders in book order: bids best→worst then asks best→worst,
+    /// FIFO within each level.
+    std::vector<RestingOrder> resting_orders() {
+        std::vector<RestingOrder> out;
+        out.reserve(pool_.live);
+        for (Side s : {Side::Bid, Side::Ask}) {
+            auto& idx = own_index(s);
+            for (const auto& d : idx.depth(std::numeric_limits<std::size_t>::max())) {
+                Level* lv = idx.level_mut(d.price);
+                for (std::uint32_t i = lv->head; i != detail::NIL; i = pool_.slots[i].next) {
+                    const Order& o = pool_.slots[i];
+                    out.push_back(RestingOrder{o.id, o.side, o.price, o.qty, o.tif});
+                }
+            }
+        }
+        return out;
+    }
+
+    /// Rebuild a book from a snapshot: same config, explicit seq, resting
+    /// orders replayed in snapshot order (bids then asks, FIFO per level).
+    static OrderBook restore(BookConfig cfg, std::uint64_t seq,
+                             const std::vector<RestingOrder>& orders) {
+        OrderBook b(cfg);
+        b.seq_ = seq;
+        for (const auto& o : orders) {
+            const std::uint32_t idx = b.pool_.alloc();
+            if (idx == detail::NIL) break;
+            b.pool_.slots[idx] =
+                Order{o.order_id, o.side, o.price, o.qty, o.tif, detail::NIL, detail::NIL};
+            detail::level_push(b.pool_, *b.own_index(o.side).level_insert(o.price), idx);
+            b.map_.insert(o.order_id, idx);
+        }
+        return b;
+    }
+
+    const BookConfig& config() const { return cfg_; }
+
   private:
     detail::PriceIndex& own_index(Side s) { return s == Side::Bid ? bids_ : asks_; }
     const detail::PriceIndex& own_index(Side s) const {
@@ -227,10 +275,10 @@ class OrderBook {
         return side == Side::Bid ? asks_.sum_range(lo, price) : bids_.sum_range(price, hi);
     }
 
-    void rest(OrderId oid, Side side, Price price, Qty qty) {
+    void rest(OrderId oid, Side side, Price price, Qty qty, Tif tif) {
         const std::uint32_t idx = pool_.alloc();
         if (idx == detail::NIL) return; // unreachable: book_full checked at ingest
-        pool_.slots[idx] = Order{oid, side, price, qty, detail::NIL, detail::NIL};
+        pool_.slots[idx] = Order{oid, side, price, qty, tif, detail::NIL, detail::NIL};
         detail::level_push(pool_, *own_index(side).level_insert(price), idx);
         map_.insert(oid, idx);
     }
