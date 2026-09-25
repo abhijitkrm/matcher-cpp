@@ -40,6 +40,12 @@ target_link_libraries(matcherfuzz PRIVATE matcher)
 
 add_executable(matchersnap bench/matchersnap.cpp)
 target_link_libraries(matchersnap PRIVATE matcher)
+
+add_executable(matcherrun bench/matcherrun.cpp)
+target_link_libraries(matcherrun PRIVATE matcher)
+
+add_executable(matcherrecover bench/matcherrecover.cpp)
+target_link_libraries(matcherrecover PRIVATE matcher)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(matcherbench PRIVATE -O3 -march=native)
 endif()
