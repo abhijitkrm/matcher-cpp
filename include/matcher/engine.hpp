@@ -2,7 +2,6 @@
 #pragma once
 
 #include <algorithm>
-#include <functional>
 #include <unordered_map>
 #include <vector>
 
@@ -27,21 +26,19 @@ class Engine {
     /// Route a command to sym's book (created with default config on first use).
     template <class S>
     void submit(Symbol sym, const Command& cmd, S& sink) {
-        auto [it, _] = books_.try_emplace(sym, OrderBook(default_cfg_));
-        it->second.apply(cmd, sink);
+        book_or_create(sym).apply(cmd, sink);
     }
 
-    /// submit with symbol-tagged delivery: f(symbol, seq, event).
-    void submit_tagged(Symbol sym, const Command& cmd,
-                       const std::function<void(Symbol, std::uint64_t, const Event&)>& f) {
-        auto [it, _] = books_.try_emplace(sym, OrderBook(default_cfg_));
-        auto& book = it->second;
+    /// submit with symbol-tagged delivery: f(symbol, seq, event). A template,
+    /// so no std::function is constructed per call.
+    template <class F>
+    void submit_tagged(Symbol sym, const Command& cmd, F&& f) {
         struct Adaptor {
             Symbol sym;
-            const std::function<void(Symbol, std::uint64_t, const Event&)>& f;
+            F& f;
             void on_event(std::uint64_t seq, const Event& ev) { f(sym, seq, ev); }
         } ad{sym, f};
-        book.apply(cmd, ad);
+        book_or_create(sym).apply(cmd, ad);
     }
 
     /// Live symbols in ascending order (deterministic for snapshots).
@@ -56,6 +53,15 @@ class Engine {
     BookConfig default_config() const { return default_cfg_; }
 
   private:
+    /// Look up first. Constructing an OrderBook allocates its pool, order map
+    /// and price index, so it must happen only for a new symbol; as a
+    /// try_emplace argument it was built (and thrown away) on every call.
+    OrderBook& book_or_create(Symbol sym) {
+        auto it = books_.find(sym);
+        if (it == books_.end()) it = books_.emplace(sym, OrderBook(default_cfg_)).first;
+        return it->second;
+    }
+
     BookConfig default_cfg_;
     std::unordered_map<Symbol, OrderBook> books_;
 };
