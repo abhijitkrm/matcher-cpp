@@ -133,10 +133,15 @@ struct OrderMap {
         if (!used[i]) return;
         used[i] = 0;
         --len;
-        // Backward-shift deletion (Knuth 6.4R) — no tombstones.
+        // Backward-shift deletion (Knuth 6.4R) — no tombstones. Scan forward
+        // from the hole; move back any entry whose probe chain crosses it.
+        // An entry that cannot move leaves the hole where it is — only the
+        // scan advances. (Previously the hole also moved onto that live
+        // slot, so a later shift overwrote it and a key silently vanished.)
         std::size_t hole = i;
+        std::size_t j = i;
         for (;;) {
-            std::size_t j = (hole + 1) & mask;
+            j = (j + 1) & mask;
             if (!used[j]) return;
             std::size_t home = mix(keys[j]) & mask;
             bool in_interval = hole < j ? (home > hole && home <= j)
@@ -144,8 +149,6 @@ struct OrderMap {
             if (!in_interval) {
                 keys[hole] = keys[j]; vals[hole] = vals[j];
                 used[hole] = 1; used[j] = 0;
-                hole = j;
-            } else {
                 hole = j;
             }
         }
