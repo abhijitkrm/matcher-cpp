@@ -63,7 +63,7 @@ tools/             vectorgen — deterministic workload generator
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
-ctest --test-dir build --output-on-failure   # 41 golden vectors
+ctest --test-dir build --output-on-failure   # 43 golden vectors
 
 # benchmark (see spec/BENCH.md)
 mkdir -p bench/corpora

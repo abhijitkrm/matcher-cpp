@@ -32,6 +32,10 @@ add_executable(snapshot_test tests/snapshot.cpp)
 target_link_libraries(snapshot_test PRIVATE matcher)
 add_test(NAME snapshot COMMAND snapshot_test ${CMAKE_CURRENT_SOURCE_DIR}/vectors)
 
+add_executable(ladder_test tests/ladder.cpp)
+target_link_libraries(ladder_test PRIVATE matcher)
+add_test(NAME ladder COMMAND ladder_test)
+
 add_executable(regress_test tests/regress.cpp)
 target_link_libraries(regress_test PRIVATE matcher)
 add_test(NAME regress COMMAND regress_test ${CMAKE_CURRENT_SOURCE_DIR}/tests/data)
