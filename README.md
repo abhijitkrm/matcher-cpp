@@ -4,7 +4,8 @@
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 
 Deterministic FIFO limit order book and matching engine core — header-only
-C++20, measured at up to **~23M orders/sec** (see `spec/BENCH.md`).
+C++20, measured at up to **~90M orders/sec** batched on a cache-resident book
+(23M at 100k live orders, 13M at 1M; see `spec/BENCH.md`).
 
 Single-writer book per symbol, commands in, monotonically sequenced events out.
 All I/O hangs off the `Sink` concept; there is no networking, persistence, or
