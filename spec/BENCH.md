@@ -1,4 +1,4 @@
-# BENCH — benchmark methodology v1
+# BENCH — benchmark methodology v2
 
 Goal: **comparable** latency/throughput numbers across implementations.
 Same workloads, same measurement protocol, same report format. Relative
@@ -39,6 +39,20 @@ Identical in every implementation:
    `t0=now(); book.apply(cmd, &NullSink); t1=now()`; store `t1-t0` ns.
 5. Also record total wall time → throughput ops/s.
 
+`matcherbench --mode` selects the loop (C++ only so far):
+
+- `latency` (default; the v1 protocol above): one `apply()` per command,
+  each timed. The ns timer costs about 40 ns, so this mode under-reports
+  throughput for books that fit in cache.
+- `throughput`: the run is replayed through `apply_batch()` with no
+  per-op timing; only total wall time is recorded. Output is identical
+  to `apply()` (the golden suite checks this). Headline ops/s figures
+  quoted for the batched path come from this mode.
+- `scale`: depth sweep across book sizes.
+
+Always say which mode a number came from. Latency-mode numbers are the
+ones comparable to the other implementations.
+
 - Latency samples: store **all** per-op nanosecond deltas in a `Vec<u64>`;
   sort at end; report exact p50/p90/p99/p99.9/max + mean.
 - Single-threaded. No logging/allocation in the timed loop. NullSink = counting
@@ -59,7 +73,10 @@ env: Apple M1 / macOS 14 / rustc 1.98.1 (lto=fat,cgu=1)
 ## 4. Fairness rules
 
 - Identical data structures and algorithms in all implementations (pool,
-  intrusive levels, ladder index, open-addressed map).
+  intrusive levels, ladder index, open-addressed map). Exception: from
+  the Unreleased C++ layout, matcher-cpp keeps resting orders inline in
+  per-level chunks and has `apply_batch`; cross-language rows for it are
+  marked with the layout.
 - Pre-reserve capacities; no growth inside timed sections.
 - Go reports two rows: default GC and `GOGC=off` (documented, not hidden).
 - No claim of absolute HFT numbers on macOS: no core pinning, no kernel bypass.

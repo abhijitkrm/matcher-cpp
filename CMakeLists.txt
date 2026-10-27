@@ -54,8 +54,17 @@ target_link_libraries(matcherrun PRIVATE matcher)
 
 add_executable(matcherrecover bench/matcherrecover.cpp)
 target_link_libraries(matcherrecover PRIVATE matcher)
+find_package(Threads REQUIRED)
+target_link_libraries(matcherbench PRIVATE Threads::Threads)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-  target_compile_options(matcherbench PRIVATE -O3 -march=native)
+  target_compile_options(matcherbench PRIVATE -O3 -march=native -flto)
+  target_link_options(matcherbench PRIVATE -flto)
+endif()
+# Optional PGO: configure with -DMATCHER_PGO_PROFILE=/path/merged.profdata
+# (generate one with scripts/pgo.sh).
+set(MATCHER_PGO_PROFILE "" CACHE FILEPATH "clang .profdata for matcherbench")
+if(MATCHER_PGO_PROFILE)
+  target_compile_options(matcherbench PRIVATE -fprofile-instr-use=${MATCHER_PGO_PROFILE})
 endif()
 
 # Install: header-only lib — consumers get #include <matcher/matcher.hpp>.

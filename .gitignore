@@ -4,3 +4,5 @@ bench/corpora/
 *.setup.cmd.jsonl
 target/
 .DS_Store
+build-pgo-gen/
+build-asan/

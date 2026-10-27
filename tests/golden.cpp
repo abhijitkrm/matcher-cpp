@@ -12,7 +12,8 @@
 namespace fs = std::filesystem;
 using namespace matcher;
 
-static std::vector<std::string> run_vector(const fs::path& cmd_path, IndexKind kind) {
+static std::vector<std::string> run_vector(const fs::path& cmd_path, IndexKind kind,
+                                           bool batch = false) {
     std::ifstream in(cmd_path);
     std::string line;
     std::getline(in, line);
@@ -44,13 +45,19 @@ static std::vector<std::string> run_vector(const fs::path& cmd_path, IndexKind k
     OrderBook book(cfg);
     LinesSink sink;
     Command cmd;
+    std::vector<Command> cmds;
     while (std::getline(in, line)) {
         if (line.empty()) continue;
         if (!jsonflat::parse_command(line, cmd)) {
             std::cerr << "bad command line: " << line << "\n";
             std::exit(2);
         }
-        book.apply(cmd, sink);
+        if (batch) cmds.push_back(cmd);
+        else book.apply(cmd, sink);
+    }
+    if (batch) {
+        book.set_prefetch_threshold(0); // exercise the look-ahead pipeline
+        book.apply_batch(cmds.data(), cmds.size(), sink);
     }
     return sink.lines;
 }
@@ -93,6 +100,11 @@ int main(int argc, char** argv) {
             if (got != expected) {
                 std::cerr << "FAIL " << cmd_path.filename() << " [mode " << int(k)
                           << "]: index divergence\n";
+                ++failures;
+            }
+            if (!hdr.engine && run_vector(cmd_path, k, true) != expected) {
+                std::cerr << "FAIL " << cmd_path.filename() << " [mode " << int(k)
+                          << "]: apply_batch diverges from apply\n";
                 ++failures;
             }
         }

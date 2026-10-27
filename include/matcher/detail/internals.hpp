@@ -10,95 +10,155 @@ namespace matcher::detail {
 
 inline constexpr std::uint32_t NIL = UINT32_MAX;
 
-// ---- order + slab pool -----------------------------------------------------
+// ---- order store: per-level chunked FIFOs ---------------------------------
 
-struct Order {
+// Resting orders live inline in their level's queue: an unrolled linked list
+// of 128-byte chunks (one M1 cache line), each holding up to 6 {id, qty}
+// slots plus the level's price/side. Matching walks slots sequentially; a
+// cancel touches one chunk. A dead slot has qty == 0 (live resting qty is
+// always > 0). A chunk is released when its last live slot dies, so chunks
+// in use never exceed live orders.
+//
+// An order's location is loc = chunk << 3 | slot — the OrderMap value.
+inline constexpr std::uint32_t CHUNK_SLOTS = 6;
+
+struct Slot {
     OrderId id;
-    Side side;
-    Price price;
     Qty qty;
-    Tif tif;
+};
+
+struct alignas(128) Chunk {
+    Price price;
     std::uint32_t prev, next;
+    std::uint8_t head, tail; // [head, tail) may hold live slots
+    std::uint8_t live;
+    Side side;
+    std::uint32_t pad_;
+    Slot s[CHUNK_SLOTS];
+    Tif tif[8];
 };
+static_assert(sizeof(Chunk) == 128);
 
-struct Pool {
-    std::vector<Order> slots;
-    std::uint32_t free_head = NIL;
-    std::size_t live = 0;
-    std::size_t cap;
-
-    explicit Pool(std::size_t cap_) : cap(cap_) {
-        slots.reserve(cap_ < (1u << 20) ? cap_ : (1u << 20));
-    }
-
-    std::uint32_t alloc() {
-        if (free_head != NIL) {
-            auto idx = free_head;
-            free_head = slots[idx].next;
-            ++live;
-            return idx;
-        }
-        if (slots.size() < cap) {
-            auto idx = static_cast<std::uint32_t>(slots.size());
-            slots.push_back(Order{0, Side::Bid, 0, 0, Tif::Gtc, NIL, NIL});
-            ++live;
-            return idx;
-        }
-        return NIL; // caller checked live < cap (book_full)
-    }
-
-    void free(std::uint32_t idx) {
-        slots[idx].next = free_head;
-        slots[idx].prev = NIL;
-        free_head = idx;
-        --live;
-    }
-};
-
-// ---- price level (intrusive FIFO) ------------------------------------------
+inline std::uint32_t loc_chunk(std::uint32_t loc) { return loc >> 3; }
+inline std::uint32_t loc_slot(std::uint32_t loc) { return loc & 7; }
 
 struct Level {
-    std::uint32_t head = NIL, tail = NIL;
+    std::uint32_t head = NIL, tail = NIL; // chunk indices
     Qty total = 0;
     bool empty() const { return head == NIL; }
 };
 
-inline void level_push(Pool& p, Level& l, std::uint32_t idx) {
-    Qty q = p.slots[idx].qty;
-    p.slots[idx].prev = l.tail;
-    p.slots[idx].next = NIL;
-    if (l.tail != NIL) p.slots[l.tail].next = idx;
-    else l.head = idx;
-    l.tail = idx;
-    l.total += q;
-}
+struct Store {
+    std::vector<Chunk> chunks;
+    std::uint32_t used = 0; // chunks[0, used) have been handed out
+    std::uint32_t free_chunk = NIL;
+    std::size_t live = 0;
 
-inline void level_unlink(Pool& p, Level& l, std::uint32_t idx) {
-    Order& o = p.slots[idx];
-    auto prev = o.prev, next = o.next;
-    Qty q = o.qty;
-    if (prev != NIL) p.slots[prev].next = next;
-    else l.head = next;
-    if (next != NIL) p.slots[next].prev = prev;
-    else l.tail = prev;
-    o.prev = o.next = NIL;
-    l.total -= q;
-}
+    explicit Store(std::size_t max_orders) { chunks.reserve(max_orders); }
+
+    // Commit and touch every chunk up front so no page fault lands on the
+    // hot path (BENCH.md: no growth inside timed sections).
+    void prefault() { chunks.resize(chunks.capacity()); }
+
+    Chunk& chunk(std::uint32_t loc) { return chunks[loc_chunk(loc)]; }
+    const Chunk& chunk(std::uint32_t loc) const { return chunks[loc_chunk(loc)]; }
+
+    // Never fails: chunks in use <= live orders <= max_orders.
+    std::uint32_t alloc_chunk(Side side, Price price) {
+        std::uint32_t c;
+        if (free_chunk != NIL) {
+            c = free_chunk;
+            free_chunk = chunks[c].next;
+        } else {
+            c = used++;
+            if (c == chunks.size()) chunks.emplace_back();
+        }
+        Chunk& ch = chunks[c];
+        ch.price = price;
+        ch.prev = ch.next = NIL;
+        ch.head = ch.tail = ch.live = 0;
+        ch.side = side;
+        return c;
+    }
+
+    void drop_chunk(Level& l, std::uint32_t c) {
+        Chunk& ch = chunks[c];
+        if (ch.prev != NIL) chunks[ch.prev].next = ch.next;
+        else l.head = ch.next;
+        if (ch.next != NIL) chunks[ch.next].prev = ch.prev;
+        else l.tail = ch.prev;
+        ch.next = free_chunk;
+        free_chunk = c;
+    }
+
+    std::uint32_t push(Level& l, Side side, Price price, OrderId id, Qty qty, Tif tif) {
+        std::uint32_t c = l.tail;
+        if (c == NIL || chunks[c].tail == CHUNK_SLOTS) {
+            const std::uint32_t n = alloc_chunk(side, price);
+            chunks[n].prev = c;
+            if (c != NIL) chunks[c].next = n;
+            else l.head = n;
+            l.tail = c = n;
+        }
+        Chunk& ch = chunks[c];
+        const std::uint32_t slot = ch.tail++;
+        ch.s[slot] = Slot{id, qty};
+        ch.tif[slot] = tif;
+        ++ch.live;
+        l.total += qty;
+        ++live;
+        return c << 3 | slot;
+    }
+
+    // Remove a live order from its level.
+    void unlink(Level& l, std::uint32_t loc) {
+        Chunk& ch = chunk(loc);
+        Slot& s = ch.s[loc_slot(loc)];
+        l.total -= s.qty;
+        s.qty = 0;
+        --live;
+        if (--ch.live == 0) drop_chunk(l, loc_chunk(loc));
+    }
+
+    // First live order of a non-empty level (advances the head chunk's
+    // cursor past dead slots).
+    std::uint32_t front(const Level& l) {
+        Chunk& ch = chunks[l.head];
+        while (ch.s[ch.head].qty == 0) ++ch.head;
+        return l.head << 3 | ch.head;
+    }
+
+    // Visit live orders in FIFO order: f(loc).
+    template <class F>
+    void for_each(const Level& l, F&& f) const {
+        for (std::uint32_t c = l.head; c != NIL; c = chunks[c].next) {
+            const Chunk& ch = chunks[c];
+            for (std::uint32_t i = ch.head; i < ch.tail; ++i)
+                if (ch.s[i].qty) f(c << 3 | i);
+        }
+    }
+};
 
 // ---- order_id -> pool index (open-addressed) --------------------------------
 
+// Linear probing over two arrays: a 1-byte tag per slot (0 = empty, else 7
+// hash bits | 0x80) and the {key, val} entries. Absent-key probes — every
+// New's duplicate check — touch only the dense tag array; a hit costs one
+// tag byte plus one 16-byte entry.
 struct OrderMap {
-    std::vector<OrderId> keys;
-    std::vector<std::uint32_t> vals;
-    std::vector<std::uint8_t> used;
+    struct Entry {
+        OrderId key;
+        std::uint32_t val;
+    };
+    std::vector<std::uint8_t> tags;
+    std::vector<Entry> entries;
     std::size_t mask, len = 0;
 
     explicit OrderMap(std::size_t live_max) {
         std::size_t cap = 16;
         while (cap < live_max * 2) cap <<= 1;
-        keys.assign(cap, 0);
-        vals.assign(cap, 0);
-        used.assign(cap, 0);
+        tags.assign(cap, 0);
+        entries.assign(cap, Entry{0, 0});
         mask = cap - 1;
     }
 
@@ -106,11 +166,21 @@ struct OrderMap {
         std::uint64_t h = k * 0x9E3779B97F4A7C15ull;
         return h ^ (h >> 32);
     }
+    // Slot from the low bits, tag from the top 7 (independent of the slot).
+    static std::uint8_t tag_of(std::uint64_t h) { return std::uint8_t((h >> 57) | 0x80); }
+
+    void prefetch(OrderId k) const {
+        const std::size_t i = mix(k) & mask;
+        __builtin_prefetch(&tags[i]);
+        __builtin_prefetch(&entries[i]);
+    }
 
     const std::uint32_t* get(OrderId k) const {
-        std::size_t i = mix(k) & mask;
-        while (used[i]) {
-            if (keys[i] == k) return &vals[i];
+        const std::uint64_t h = mix(k);
+        const std::uint8_t t = tag_of(h);
+        std::size_t i = h & mask;
+        while (std::uint8_t ti = tags[i]) {
+            if (ti == t && entries[i].key == k) return &entries[i].val;
             i = (i + 1) & mask;
         }
         return nullptr;
@@ -118,37 +188,52 @@ struct OrderMap {
 
     bool contains(OrderId k) const { return get(k) != nullptr; }
 
+    // Bumped by every remove(): a value pointer from get() stays valid until
+    // the next remove (backward shift may relocate entries; insert of a new
+    // key never moves existing ones).
+    std::uint64_t removes = 0;
+
     void insert(OrderId k, std::uint32_t v) {
-        std::size_t i = mix(k) & mask;
-        while (used[i]) {
-            if (keys[i] == k) { vals[i] = v; return; }
+        const std::uint64_t h = mix(k);
+        const std::uint8_t t = tag_of(h);
+        std::size_t i = h & mask;
+        while (std::uint8_t ti = tags[i]) {
+            if (ti == t && entries[i].key == k) { entries[i].val = v; return; }
             i = (i + 1) & mask;
         }
-        used[i] = 1; keys[i] = k; vals[i] = v; ++len;
+        tags[i] = t;
+        entries[i] = Entry{k, v};
+        ++len;
     }
 
     void remove(OrderId k) {
-        std::size_t i = mix(k) & mask;
-        while (used[i] && keys[i] != k) i = (i + 1) & mask;
-        if (!used[i]) return;
-        used[i] = 0;
+        const std::uint64_t h = mix(k);
+        const std::uint8_t t = tag_of(h);
+        std::size_t i = h & mask;
+        for (;;) {
+            const std::uint8_t ti = tags[i];
+            if (!ti) return;
+            if (ti == t && entries[i].key == k) break;
+            i = (i + 1) & mask;
+        }
+        tags[i] = 0;
         --len;
+        ++removes;
         // Backward-shift deletion (Knuth 6.4R) — no tombstones. Scan forward
         // from the hole; move back any entry whose probe chain crosses it.
         // An entry that cannot move leaves the hole where it is — only the
-        // scan advances. (Previously the hole also moved onto that live
-        // slot, so a later shift overwrote it and a key silently vanished.)
+        // scan advances.
         std::size_t hole = i;
         std::size_t j = i;
         for (;;) {
             j = (j + 1) & mask;
-            if (!used[j]) return;
-            std::size_t home = mix(keys[j]) & mask;
+            if (!tags[j]) return;
+            std::size_t home = mix(entries[j].key) & mask;
             bool in_interval = hole < j ? (home > hole && home <= j)
                                         : (home > hole || home <= j);
             if (!in_interval) {
-                keys[hole] = keys[j]; vals[hole] = vals[j];
-                used[hole] = 1; used[j] = 0;
+                tags[hole] = tags[j]; entries[hole] = entries[j];
+                tags[j] = 0;
                 hole = j;
             }
         }
@@ -181,6 +266,15 @@ struct LadderIndex {
     }
 
     std::size_t idx(Price p) const { return std::size_t(p - base); }
+
+    void prefetch(Price p) const {
+        auto i = idx(p);
+        if (i < levels.size()) __builtin_prefetch(&levels[i]);
+    }
+    const Level* peek(Price p) const {
+        auto i = idx(p);
+        return i < levels.size() ? &levels[i] : nullptr;
+    }
 
     bool best_price(Price& out) const {
         if (best == NIL) return false;
@@ -361,6 +455,12 @@ struct PriceIndex {
     PriceIndex(IndexKind k, Side side, Price pmin, Price pmax)
         : kind(k), lad(side, pmin, pmax), tree(side) {}
 
+    void prefetch(Price p) const {
+        if (kind == IndexKind::Ladder) lad.prefetch(p);
+    }
+    const Level* peek(Price p) const {
+        return kind == IndexKind::Ladder ? lad.peek(p) : nullptr;
+    }
     bool best_price(Price& out) const {
         return kind == IndexKind::Ladder ? lad.best_price(out) : tree.best_price(out);
     }

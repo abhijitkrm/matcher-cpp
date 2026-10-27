@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- New hot-path layout (`../matcher/docs/LAYOUT.md`): resting orders live
+  inline in 128-byte per-level chunks (unrolled FIFO, dead slot = qty 0)
+  instead of a pooled record + intrusive prev/next list; matching reads
+  makers sequentially and a cancel touches one chunk.
+- `OrderMap`: 1-byte tag array + `{key, val}` entries; absent-id checks
+  touch only tags. `replace` skips the re-probe when no entry moved.
+- `OrderBook::apply_batch()`: same events as `apply()` per command, plus a
+  look-ahead prefetch pipeline once the book outgrows cache;
+  `set_prefetch_threshold()`; `prefault()`.
+- `matcherbench --mode latency|throughput|scale` (BENCH.md v2), `-flto`,
+  optional PGO (`scripts/pgo.sh`, `-DMATCHER_PGO_PROFILE`).
+- Golden suite also checks `apply_batch` (pipeline forced on) against
+  `apply` for every vector.
+
 ## v0.2.0 — 2026-10-10
 
 - Journals and snapshots (`spec/JOURNAL.md`): command/event journal,
