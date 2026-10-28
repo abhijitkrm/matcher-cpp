@@ -38,7 +38,7 @@ class OrderBook {
 
     /// Apply one command; events emitted in order via sink.on_event(seq, ev).
     template <class Sink>
-    void apply(const Command& cmd, Sink& sink) {
+    [[gnu::always_inline]] void apply(const Command& cmd, Sink& sink) {
         switch (cmd.kind) {
             case Command::Kind::New:
                 new_order(cmd, sink);
@@ -76,7 +76,7 @@ class OrderBook {
     // ---- commands ----
 
     template <class Sink>
-    void new_order(const Command& c, Sink& sink) {
+    [[gnu::always_inline]] void new_order(const Command& c, Sink& sink) {
         const OrderId oid = c.order_id;
         // SPEC §4.3 validation precedence.
         if (c.qty == 0) return reject(sink, oid, RejectReason::InvalidQty);
@@ -113,7 +113,7 @@ class OrderBook {
     }
 
     template <class Sink>
-    void cancel(OrderId oid, Sink& sink) {
+    [[gnu::always_inline]] void cancel(OrderId oid, Sink& sink) {
         const std::uint32_t* ploc = map_.get(oid);
         if (!ploc) return reject(sink, oid, RejectReason::UnknownOrderId);
         const std::uint32_t loc = *ploc;
@@ -129,7 +129,7 @@ class OrderBook {
     }
 
     template <class Sink>
-    void replace(OrderId oid, Price price, Qty qty, Sink& sink) {
+    [[gnu::always_inline]] void replace(OrderId oid, Price price, Qty qty, Sink& sink) {
         std::uint32_t* ploc = const_cast<std::uint32_t*>(map_.get(oid));
         if (!ploc) return reject(sink, oid, RejectReason::UnknownOrderId);
         const std::uint32_t loc = *ploc;
@@ -180,7 +180,7 @@ class OrderBook {
     // ---- matching core ----
 
     template <class Sink>
-    void cross(Side side, bool has_bound, Price bound, OrderId taker, Qty& qty, Sink& sink) {
+    [[gnu::always_inline]] void cross(Side side, bool has_bound, Price bound, OrderId taker, Qty& qty, Sink& sink) {
         detail::PriceIndex& opp = side == Side::Bid ? asks_ : bids_;
         for (;;) {
             Price bp;
@@ -338,17 +338,17 @@ class OrderBook {
         return side == Side::Bid ? asks_.sum_range(lo, price) : bids_.sum_range(price, hi);
     }
 
-    void rest(OrderId oid, Side side, Price price, Qty qty, Tif tif) {
+    [[gnu::always_inline]] void rest(OrderId oid, Side side, Price price, Qty qty, Tif tif) {
         map_.insert(oid, store_.push(*own_index(side).level_insert(price), side, price, oid, qty, tif));
     }
 
     template <class Sink>
-    void emit(Sink& sink, const Event& e) {
+    [[gnu::always_inline]] void emit(Sink& sink, const Event& e) {
         ++seq_;
         sink.on_event(seq_, e);
     }
     template <class Sink>
-    void reject(Sink& sink, OrderId oid, RejectReason r) {
+    [[gnu::always_inline]] void reject(Sink& sink, OrderId oid, RejectReason r) {
         Event e; e.kind = Event::Kind::Rejected; e.order_id = oid;
         e.reason = std::uint8_t(r);
         emit(sink, e);

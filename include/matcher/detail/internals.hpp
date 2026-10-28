@@ -64,7 +64,7 @@ struct Store {
     const Chunk& chunk(std::uint32_t loc) const { return chunks[loc_chunk(loc)]; }
 
     // Never fails: chunks in use <= live orders <= max_orders.
-    std::uint32_t alloc_chunk(Side side, Price price) {
+    [[gnu::always_inline]] std::uint32_t alloc_chunk(Side side, Price price) {
         std::uint32_t c;
         if (free_chunk != NIL) {
             c = free_chunk;
@@ -81,7 +81,7 @@ struct Store {
         return c;
     }
 
-    void drop_chunk(Level& l, std::uint32_t c) {
+    [[gnu::always_inline]] void drop_chunk(Level& l, std::uint32_t c) {
         Chunk& ch = chunks[c];
         if (ch.prev != NIL) chunks[ch.prev].next = ch.next;
         else l.head = ch.next;
@@ -91,7 +91,7 @@ struct Store {
         free_chunk = c;
     }
 
-    std::uint32_t push(Level& l, Side side, Price price, OrderId id, Qty qty, Tif tif) {
+    [[gnu::always_inline]] std::uint32_t push(Level& l, Side side, Price price, OrderId id, Qty qty, Tif tif) {
         std::uint32_t c = l.tail;
         if (c == NIL || chunks[c].tail == CHUNK_SLOTS) {
             const std::uint32_t n = alloc_chunk(side, price);
@@ -111,7 +111,7 @@ struct Store {
     }
 
     // Remove a live order from its level.
-    void unlink(Level& l, std::uint32_t loc) {
+    [[gnu::always_inline]] void unlink(Level& l, std::uint32_t loc) {
         Chunk& ch = chunk(loc);
         Slot& s = ch.s[loc_slot(loc)];
         l.total -= s.qty;
@@ -193,7 +193,7 @@ struct OrderMap {
     // key never moves existing ones).
     std::uint64_t removes = 0;
 
-    void insert(OrderId k, std::uint32_t v) {
+    [[gnu::always_inline]] void insert(OrderId k, std::uint32_t v) {
         const std::uint64_t h = mix(k);
         const std::uint8_t t = tag_of(h);
         std::size_t i = h & mask;
@@ -206,7 +206,7 @@ struct OrderMap {
         ++len;
     }
 
-    void remove(OrderId k) {
+    [[gnu::always_inline]] void remove(OrderId k) {
         const std::uint64_t h = mix(k);
         const std::uint8_t t = tag_of(h);
         std::size_t i = h & mask;
@@ -282,14 +282,14 @@ struct LadderIndex {
         return true;
     }
 
-    Level* level_mut(Price p) {
+    [[gnu::always_inline]] Level* level_mut(Price p) {
         auto i = idx(p);
         if (i >= levels.size()) return nullptr;
         Level& l = levels[i];
         return l.empty() ? nullptr : &l;
     }
 
-    Level* level_insert(Price p) {
+    [[gnu::always_inline]] Level* level_insert(Price p) {
         auto i = idx(p);
         Level& l = levels[i];
         if (l.empty()) {
@@ -304,7 +304,7 @@ struct LadderIndex {
         return &l;
     }
 
-    void unlink_level(Price p) {
+    [[gnu::always_inline]] void unlink_level(Price p) {
         auto i = idx(p);
         if (!levels[i].empty()) return;
         std::size_t w = i / 64;
@@ -408,15 +408,15 @@ struct TreeIndex {
         return true;
     }
 
-    Level* level_mut(Price p) {
+    [[gnu::always_inline]] Level* level_mut(Price p) {
         auto it = map.find(p);
         if (it == map.end() || it->second.empty()) return nullptr;
         return &it->second;
     }
 
-    Level* level_insert(Price p) { return &map[p]; }
+    [[gnu::always_inline]] Level* level_insert(Price p) { return &map[p]; }
 
-    void unlink_level(Price p) {
+    [[gnu::always_inline]] void unlink_level(Price p) {
         auto it = map.find(p);
         if (it != map.end() && it->second.empty()) map.erase(it);
     }
@@ -464,13 +464,13 @@ struct PriceIndex {
     bool best_price(Price& out) const {
         return kind == IndexKind::Ladder ? lad.best_price(out) : tree.best_price(out);
     }
-    Level* level_mut(Price p) {
+    [[gnu::always_inline]] Level* level_mut(Price p) {
         return kind == IndexKind::Ladder ? lad.level_mut(p) : tree.level_mut(p);
     }
-    Level* level_insert(Price p) {
+    [[gnu::always_inline]] Level* level_insert(Price p) {
         return kind == IndexKind::Ladder ? lad.level_insert(p) : tree.level_insert(p);
     }
-    void unlink_level(Price p) {
+    [[gnu::always_inline]] void unlink_level(Price p) {
         kind == IndexKind::Ladder ? lad.unlink_level(p) : tree.unlink_level(p);
     }
     Qty sum_range(Price lo, Price hi) const {
