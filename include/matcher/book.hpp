@@ -231,6 +231,11 @@ class OrderBook {
     std::size_t order_count() const { return store_.live; }
     std::uint64_t seq() const { return seq_; }
     std::size_t level_count(Side s) { return own_index(s).len(); }
+    /// Total resting quantity at exactly `p` on side `s` (0 if no level).
+    Qty level_total(Side s, Price p) {
+        Level* lv = own_index(s).level_mut(p);
+        return lv ? lv->total : 0;
+    }
     std::vector<detail::LevelDepth> depth(Side s, std::size_t n) {
         return own_index(s).depth(n);
     }
