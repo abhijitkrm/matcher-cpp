@@ -5,7 +5,8 @@
 
 Deterministic FIFO limit order book and matching engine core — header-only
 C++20, measured at up to **~90M orders/sec** batched on a cache-resident book
-(23M at 100k live orders, 13M at 1M; see `spec/BENCH.md`).
+(23M at 100k live orders, 13M at 1M), and **110M+ orders/sec** aggregate across
+8 shards on a mixed workload (see `spec/BENCH.md`).
 
 Single-writer book per symbol, commands in, monotonically sequenced events out.
 All I/O hangs off the `Sink` concept; there is no networking, persistence, or

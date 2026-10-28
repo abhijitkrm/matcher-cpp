@@ -13,6 +13,8 @@
   `set_prefetch_threshold()`; `prefault()`.
 - `matcherbench --mode latency|throughput|scale` (BENCH.md v2), `-flto`,
   optional PGO (`scripts/pgo.sh`, `-DMATCHER_PGO_PROFILE`).
+- Aggregate (`--mode scale`, 8 shards, M1): 112M ops/s on the mixed
+  workload, 305M on a 1k-order book.
 - Golden suite also checks `apply_batch` (pipeline forced on) against
   `apply` for every vector.
 
