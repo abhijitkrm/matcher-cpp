@@ -13,8 +13,11 @@
   `set_prefetch_threshold()`; `prefault()`.
 - `matcherbench --mode latency|throughput|scale` (BENCH.md v2), `-flto`,
   optional PGO (`scripts/pgo.sh`, `-DMATCHER_PGO_PROFILE`).
-- Aggregate (`--mode scale`, 8 shards, M1): 112M ops/s on the mixed
-  workload, 305M on a 1k-order book.
+- The hot path is `[[gnu::always_inline]]` (apply, new_order, cancel,
+  replace, cross, rest, emit, reject and the store / order-map / price-index
+  operations): W5 1k 86.7M -> 101M ops/s, W4 +12%, others +7-14%.
+- Aggregate (`--mode scale`, 8 shards, M1): 120M ops/s on the mixed
+  workload, 346M on a 1k-order book.
 - Golden suite also checks `apply_batch` (pipeline forced on) against
   `apply` for every vector.
 
